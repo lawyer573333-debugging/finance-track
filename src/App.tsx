@@ -183,58 +183,15 @@ export default function App() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
+  const bottomActiveTab = useMemo(() => {
+    if (['Insights', 'Tasks', 'Settings', 'More'].includes(activeTab)) {
+      return 'More';
+    }
+    return activeTab;
+  }, [activeTab]);
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex font-body pb-16 md:pb-0">
-      {/* Mobile Menu Slide-over Drawer */}
-      <AnimatePresence>
-        {isMobileMenuOpen && (
-          <>
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
-            />
-            {/* Drawer */}
-            <motion.aside
-              initial={{ x: '-100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '-100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed inset-y-0 left-0 w-64 bg-slate-850 border-r border-slate-800 z-50 md:hidden flex flex-col shadow-2xl"
-            >
-              <div className="p-6 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 flex items-center justify-center bg-emerald-500 rounded-lg">
-                    <Wallet className="w-5 h-5 text-slate-900" />
-                  </div>
-                  <span className="font-display font-bold text-xl tracking-tight text-white">FinFlow</span>
-                </div>
-                <button
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <nav className="flex-1 px-4 space-y-1 mt-4">
-                <NavItem id="Dashboard" icon={LayoutDashboard} label="Dashboard" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
-                <NavItem id="Transactions" icon={ListTodo} label="Transactions" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
-                <NavItem id="Charts" icon={PieChartIcon} label="Charts & Analytics" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
-                <NavItem id="Insights" icon={Lightbulb} label="AI Insights" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
-                <NavItem id="Budgets" icon={Target} label="Budget Planner" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
-                <NavItem id="Tasks" icon={CheckCircle2} label="Goals & Tasks" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
-              </nav>
-              <div className="p-4 border-t border-slate-800">
-                 <NavItem id="Settings" icon={SettingsIcon} label="Settings" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
-              </div>
-            </motion.aside>
-          </>
-        )}
-      </AnimatePresence>
-
       <aside className="w-64 bg-slate-850 border-r border-slate-800 hidden md:flex flex-col animate-in slide-in-from-left duration-200">
         <div className="p-6 flex items-center gap-3">
           <div className="w-8 h-8 flex items-center justify-center bg-emerald-500 rounded-lg">
@@ -257,14 +214,11 @@ export default function App() {
 
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         <header className="h-16 border-b border-slate-800 bg-slate-850/50 backdrop-blur-md flex items-center justify-between px-4 md:px-6 shrink-0 z-10 w-full animate-in fade-in duration-200">
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setIsMobileMenuOpen(true)}
-              className="p-2 -ml-2 text-slate-400 hover:text-slate-200 rounded-lg md:hidden transition-colors"
-              aria-label="Open navigation menu"
-            >
-              <Menu className="w-6 h-6" />
-            </button>
+          <div className="flex items-center gap-3">
+            {/* Elegant compact logo indicator for mobile instead of manual slide triggers */}
+            <div className="w-8 h-8 flex items-center justify-center bg-emerald-500 rounded-lg md:hidden">
+              <Wallet className="w-5 h-5 text-slate-900" />
+            </div>
             <h2 className="text-base md:text-lg font-medium text-slate-200 truncate">{greeting}, {user.name.split(' ')[0]} 👋</h2>
           </div>
           <div className="flex items-center gap-4">
@@ -288,6 +242,7 @@ export default function App() {
              {activeTab === 'Budgets' && <BudgetsView transactions={transactions} settings={settings} budgets={budgets} setBudgets={setBudgets} />}
              {activeTab === 'Tasks' && <TasksView transactions={transactions} tasks={tasks} setTasks={setTasks} />}
              {activeTab === 'Settings' && <SettingsView settings={settings} setSettings={setSettings} user={user} setTransactions={setTransactions} addToast={addToast} />}
+             {activeTab === 'More' && <MoreView setTab={setActiveTab} logout={logout} user={user} />}
            </div>
         </div>
       </main>
@@ -302,17 +257,11 @@ export default function App() {
 
       {/* Mobile Bottom Navigation Bar */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-slate-850/95 backdrop-blur-md border-t border-slate-800/80 flex items-center justify-around px-2 z-30 pb-safe">
-        <BottomTabItem id="Dashboard" icon={LayoutDashboard} label="Overview" activeTab={activeTab} setActiveTab={setActiveTab} />
-        <BottomTabItem id="Transactions" icon={ListTodo} label="History" activeTab={activeTab} setActiveTab={setActiveTab} />
-        <BottomTabItem id="Charts" icon={PieChartIcon} label="Analytics" activeTab={activeTab} setActiveTab={setActiveTab} />
-        <BottomTabItem id="Budgets" icon={Target} label="Budgets" activeTab={activeTab} setActiveTab={setActiveTab} />
-        <button 
-          onClick={() => setIsMobileMenuOpen(true)}
-          className="flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-200 transition-colors w-12"
-        >
-          <Menu className="w-5 h-5 animate-pulse" />
-          <span className="text-[10px] font-medium">Menu</span>
-        </button>
+        <BottomTabItem id="Dashboard" icon={LayoutDashboard} label="Overview" activeTab={bottomActiveTab} setActiveTab={setActiveTab} />
+        <BottomTabItem id="Transactions" icon={ListTodo} label="History" activeTab={bottomActiveTab} setActiveTab={setActiveTab} />
+        <BottomTabItem id="Charts" icon={PieChartIcon} label="Analytics" activeTab={bottomActiveTab} setActiveTab={setActiveTab} />
+        <BottomTabItem id="Budgets" icon={Target} label="Budgets" activeTab={bottomActiveTab} setActiveTab={setActiveTab} />
+        <BottomTabItem id="More" icon={MoreHorizontal} label="More" activeTab={bottomActiveTab} setActiveTab={setActiveTab} />
       </div>
 
       <div className="fixed bottom-20 md:bottom-4 right-4 z-50 flex flex-col gap-2">
@@ -346,6 +295,75 @@ function BottomTabItem({ id, icon: Icon, label, activeTab, setActiveTab }: { id:
       <Icon className="w-5 h-5" />
       <span className="text-[10px] whitespace-nowrap">{label}</span>
     </button>
+  );
+}
+
+function MoreView({ setTab, logout, user }: { setTab: (tab: string) => void, logout: () => void, user: any }) {
+  return (
+    <div className="space-y-6 animate-in fade-in duration-200">
+      <div>
+        <h1 className="text-2xl font-display font-semibold text-white">More Services</h1>
+        <p className="text-slate-400 text-sm mt-1">Explore all additional FinFlow capabilities</p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* AI Insights Card */}
+        <button 
+          onClick={() => setTab('Insights')}
+          className="flex items-start gap-4 p-5 rounded-2xl bg-slate-850 border border-slate-800 hover:border-emerald-500/40 hover:bg-emerald-500/5 transition-all text-left group"
+        >
+          <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:scale-105 transition-transform shrink-0">
+            <Lightbulb className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-white group-hover:text-emerald-400 transition-colors">AI Insights</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">Get smart automated tips, budget recommendations, and custom summaries generated from your actual dataset.</p>
+          </div>
+        </button>
+
+        {/* Goals & Tasks Card */}
+        <button 
+          onClick={() => setTab('Tasks')}
+          className="flex items-start gap-4 p-5 rounded-2xl bg-slate-850 border border-slate-800 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all text-left group"
+        >
+          <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-xl group-hover:scale-105 transition-transform shrink-0">
+            <CheckCircle2 className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">Goals & Tasks</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">Track financial milestones, upcoming utility bill checks, and checklist priorities aligned with your budgets.</p>
+          </div>
+        </button>
+
+        {/* Settings Card */}
+        <button 
+          onClick={() => setTab('Settings')}
+          className="flex items-start gap-4 p-5 rounded-2xl bg-slate-850 border border-slate-800 hover:border-amber-500/40 hover:bg-amber-500/5 transition-all text-left group"
+        >
+          <div className="p-3 bg-amber-500/10 text-amber-500 rounded-xl group-hover:scale-105 transition-transform shrink-0">
+            <SettingsIcon className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-white group-hover:text-amber-400 transition-colors">Settings</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">Customize currency formats, budget alert limits, default categories, and handle database actions cleanly.</p>
+          </div>
+        </button>
+
+        {/* Sign Out Card */}
+        <button 
+          onClick={logout}
+          className="flex items-start gap-4 p-5 rounded-2xl bg-slate-850 border border-slate-800 hover:border-rose-500/40 hover:bg-rose-500/5 transition-all text-left group"
+        >
+          <div className="p-3 bg-rose-500/10 text-rose-400 rounded-xl group-hover:scale-105 transition-transform shrink-0">
+            <LogOut className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-white group-hover:text-rose-400 transition-colors">Sign Out</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">Log out of this application session securely. Your configurations will be preserved safely.</p>
+          </div>
+        </button>
+      </div>
+    </div>
   );
 }
 

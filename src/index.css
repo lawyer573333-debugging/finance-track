@@ -22,18 +22,33 @@ body {
   color: #f8fafc;
 }
 
-/* Custom Scrollbar for dark theme */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* Custom Scrollbar for dark theme - Desktop Only */
+@media (min-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.5); 
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(51, 65, 85, 0.8); 
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(71, 85, 105, 1); 
+  }
 }
-::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.5); 
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(51, 65, 85, 0.8); 
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(71, 85, 105, 1); 
+
+/* Hide scrollbars on mobile to prevent horizontal or vertical visual slider lines */
+@media (max-width: 767px) {
+  ::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  * {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
 }
