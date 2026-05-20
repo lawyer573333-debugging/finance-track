@@ -23,6 +23,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+import { checkSupabaseConnection, type SupabaseStatus } from './services/dbDiagnostic';
+import { 
+  syncUser, fetchTransactions, fetchBudgets, fetchTasks, 
+  saveTransaction, deleteTransaction, saveBudget, saveTask, deleteTask 
+} from './services/dbSync';
+
 // ==========================================
 // TYPES
 // ==========================================
@@ -129,33 +135,180 @@ export default function App() {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [toasts, setToasts] = useState<{id: string, msg: string, type: 'success'|'error'|'info'}[]>([]);
 
+  const [dbStatus, setDbStatus] = useState<SupabaseStatus | null>(null);
+  const [isValidatingDb, setIsValidatingDb] = useState(false);
+
   const addToast = (msg: string, type: 'success'|'error'|'info' = 'info') => {
-    const id = Math.random().toString(36).substr(2, 9);
+    const id = Math.random().toString(36).substring(2, 11);
     setToasts(prev => [...prev, {id, msg, type}]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   };
 
-  const loginDemo = () => {
-    setUser({ id: 'demo123', name: 'Alex Demo', email: 'alex@finflow.demo', joinedDate: new Date().toISOString() });
-    setTransactions(generateDemoData());
-    addToast('Logged in with Demo Account', 'success');
+  const checkDb = async (showToast = false) => {
+    setIsValidatingDb(true);
+    try {
+      const status = await checkSupabaseConnection();
+      setDbStatus(status);
+      if (showToast) {
+        if (status.connected && Object.values(status.tables).every(Boolean)) {
+          addToast('Connected to Supabase! Direct sync is active.', 'success');
+        } else if (status.connected) {
+          addToast('Connected to Supabase. Note: Some tables are missing.', 'info');
+        } else if (!status.configured) {
+          addToast('Supabase is not configured yet. Add your project credentials/secrets!', 'info');
+        } else {
+          addToast(status.error || 'Connection verification failed.', 'error');
+        }
+      }
+      return status;
+    } catch {
+      if (showToast) addToast('Failed to check database connection.', 'error');
+      return null;
+    } finally {
+      setIsValidatingDb(false);
+    }
   };
 
-  const handleAuth = (e: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    checkDb();
+    // Auto-login from local storage state if a previous session exists
+    const stored = localStorage.getItem('finflow_user_session');
+    if (stored) {
+      try {
+        const u = JSON.parse(stored);
+        setUser(u);
+        
+        // Fetch database parameters in background
+        checkSupabaseConnection().then(async (status) => {
+          setDbStatus(status);
+          if (status.connected) {
+            if (status.tables.transactions) {
+              const txs = await fetchTransactions(u.id);
+              if (txs) setTransactions(txs);
+            }
+            if (status.tables.budgets) {
+              const bg = await fetchBudgets(u.id);
+              if (bg && bg.length > 0) setBudgets(bg);
+            }
+            if (status.tables.tasks) {
+              const tk = await fetchTasks(u.id);
+              if (tk) setTasks(tk);
+            }
+          }
+        });
+      } catch (e) {
+        console.error('Session restore failed:', e);
+      }
+    }
+  }, []);
+
+  const loginDemo = () => {
+    const demoUser = { id: 'demo123', name: 'Alex Demo', email: 'alex@finflow.demo', joinedDate: new Date().toISOString() };
+    setUser(demoUser);
+    localStorage.setItem('finflow_user_session', JSON.stringify(demoUser));
+    setTransactions(generateDemoData());
+    addToast('Logged in with Demo Account (offline storage only)', 'success');
+  };
+
+  const handleAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     const email = data.get('email') as string;
-    const name = data.get('name') as string || 'New User';
-    setUser({ id: 'usr-'+Date.now(), name, email, joinedDate: new Date().toISOString() });
+    const name = (data.get('name') as string) || 'New User';
+    
+    addToast('Checking backend database status...', 'info');
+    const status = await checkDb();
+    
+    if (status && status.connected && status.tables.users) {
+      addToast('Verifying session on Supabase...', 'info');
+      const synced = await syncUser(email, name);
+      if (synced) {
+        setUser(synced);
+        localStorage.setItem('finflow_user_session', JSON.stringify(synced));
+        
+        let txsLoaded = false;
+        if (status.tables.transactions) {
+          const txs = await fetchTransactions(synced.id);
+          if (txs) {
+            setTransactions(txs);
+            txsLoaded = true;
+          }
+        }
+        if (status.tables.budgets) {
+          const bg = await fetchBudgets(synced.id);
+          if (bg && bg.length > 0) setBudgets(bg);
+        }
+        if (status.tables.tasks) {
+          const tk = await fetchTasks(synced.id);
+          if (tk) setTasks(tk);
+        }
+        
+        if (txsLoaded) {
+          addToast(`Successfully loaded historic data from Supabase!`, 'success');
+        } else {
+          addToast(`Signed in and synced securely to Supabase!`, 'success');
+        }
+        return;
+      }
+    }
+    
+    // Offline local fallback
+    const localUser = { id: 'usr-'+Date.now(), name, email, joinedDate: new Date().toISOString() };
+    setUser(localUser);
+    localStorage.setItem('finflow_user_session', JSON.stringify(localUser));
     if(transactions.length === 0) setTransactions([]);
-    addToast(`Welcome to FinFlow, ${name}!`, 'success');
+    addToast(`Running in fallback local sandbox mode.`, 'info');
   };
 
   const logout = () => {
     setUser(null);
+    localStorage.removeItem('finflow_user_session');
     setTransactions([]);
     setTasks([]);
     addToast('Logged out successfully', 'info');
+  };
+
+  const handleSetBudgets = async (newBudgets: Budget[] | ((prev: Budget[]) => Budget[])) => {
+    let resolvedBudgets: Budget[];
+    if (typeof newBudgets === 'function') {
+      setBudgets(prev => {
+        resolvedBudgets = newBudgets(prev);
+        if (user && dbStatus?.connected && dbStatus?.tables.budgets) {
+          resolvedBudgets.forEach(b => saveBudget(user.id, b));
+        }
+        return resolvedBudgets;
+      });
+    } else {
+      resolvedBudgets = newBudgets;
+      setBudgets(resolvedBudgets);
+      if (user && dbStatus?.connected && dbStatus?.tables.budgets) {
+        resolvedBudgets.forEach(b => saveBudget(user.id, b));
+      }
+    }
+  };
+
+  const handleSetTasks = async (newTasks: Task[] | ((prev: Task[]) => Task[])) => {
+    let resolvedTasks: Task[];
+    if (typeof newTasks === 'function') {
+      setTasks(prev => {
+        resolvedTasks = newTasks(prev);
+        if (user && dbStatus?.connected && dbStatus?.tables.tasks) {
+          const deleted = prev.filter(p => !resolvedTasks.some(r => r.id === p.id));
+          deleted.forEach(d => deleteTask(d.id));
+          resolvedTasks.forEach(k => saveTask(user.id, k));
+        }
+        return resolvedTasks;
+      });
+    } else {
+      resolvedTasks = newTasks;
+      const prev = tasks;
+      setTasks(resolvedTasks);
+      if (user && dbStatus?.connected && dbStatus?.tables.tasks) {
+        const deleted = prev.filter(p => !resolvedTasks.some(r => r.id === p.id));
+        deleted.forEach(d => deleteTask(d.id));
+        resolvedTasks.forEach(k => saveTask(user.id, k));
+      }
+    }
   };
 
   const thisMonthTxs = useMemo(() => {
@@ -176,19 +329,19 @@ export default function App() {
   const monthlyExpense = useMemo(() => thisMonthTxs.filter(t => t.type === 'Expense').reduce((a, b) => a + b.amount, 0), [thisMonthTxs]);
   const savingsRate = monthlyIncome > 0 ? ((monthlyIncome - monthlyExpense) / monthlyIncome) * 100 : 0;
 
-  if (!user) {
-    return <AuthScreen isAuthMode={isAuthMode} setIsAuthMode={setIsAuthMode} handleAuth={handleAuth} loginDemo={loginDemo} toasts={toasts} />;
-  }
-
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-
   const bottomActiveTab = useMemo(() => {
     if (['Insights', 'Tasks', 'Settings', 'More'].includes(activeTab)) {
       return 'More';
     }
     return activeTab;
   }, [activeTab]);
+
+  if (!user) {
+    return <AuthScreen isAuthMode={isAuthMode} setIsAuthMode={setIsAuthMode} handleAuth={handleAuth} loginDemo={loginDemo} toasts={toasts} />;
+  }
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex font-body pb-16 md:pb-0">
@@ -236,22 +389,36 @@ export default function App() {
         <div className="flex-1 overflow-auto p-4 md:p-8">
            <div className="max-w-7xl mx-auto space-y-8">
              {activeTab === 'Dashboard' && <DashboardView user={user} transactions={transactions} settings={settings} monthlyIncome={monthlyIncome} monthlyExpense={monthlyExpense} netBalance={netBalance} savingsRate={savingsRate} setTab={setActiveTab} onOpenTx={() => {setEditingTx(null); setIsTxModalOpen(true);}} />}
-             {activeTab === 'Transactions' && <TransactionsView transactions={transactions} settings={settings} onAdd={() => {setEditingTx(null); setIsTxModalOpen(true)}} onEdit={(tx: Transaction) => {setEditingTx(tx); setIsTxModalOpen(true)}} onDelete={(id: string) => { setTransactions(prev => prev.filter(t => t.id !== id)); addToast('Transaction deleted', 'success'); }} />}
+             {activeTab === 'Transactions' && <TransactionsView transactions={transactions} settings={settings} onAdd={() => {setEditingTx(null); setIsTxModalOpen(true)}} onEdit={(tx: Transaction) => {setEditingTx(tx); setIsTxModalOpen(true)}} onDelete={async (id: string) => {
+               setTransactions(prev => prev.filter(t => t.id !== id)); 
+               addToast('Transaction deleted', 'success');
+               if (user && dbStatus?.connected && dbStatus?.tables.transactions) {
+                 await deleteTransaction(id);
+               }
+             }} />}
              {activeTab === 'Charts' && <ChartsView transactions={transactions} settings={settings} />}
              {activeTab === 'Insights' && <InsightsView transactions={transactions} settings={settings} />}
-             {activeTab === 'Budgets' && <BudgetsView transactions={transactions} settings={settings} budgets={budgets} setBudgets={setBudgets} />}
-             {activeTab === 'Tasks' && <TasksView transactions={transactions} tasks={tasks} setTasks={setTasks} />}
-             {activeTab === 'Settings' && <SettingsView settings={settings} setSettings={setSettings} user={user} setTransactions={setTransactions} addToast={addToast} />}
+             {activeTab === 'Budgets' && <BudgetsView transactions={transactions} settings={settings} budgets={budgets} setBudgets={handleSetBudgets} />}
+             {activeTab === 'Tasks' && <TasksView transactions={transactions} tasks={tasks} setTasks={handleSetTasks} />}
+             {activeTab === 'Settings' && <SettingsView settings={settings} setSettings={setSettings} user={user} setTransactions={setTransactions} addToast={addToast} dbStatus={dbStatus} isValidatingDb={isValidatingDb} onCheckDb={checkDb} />}
              {activeTab === 'More' && <MoreView setTab={setActiveTab} logout={logout} user={user} />}
            </div>
         </div>
       </main>
 
       <AnimatePresence>
-        {isTxModalOpen && <TransactionModal editingTx={editingTx} settings={settings} onClose={() => setIsTxModalOpen(false)} onSave={(tx: Transaction) => {
-            if (editingTx) { setTransactions(prev => prev.map(t => t.id === tx.id ? tx : t)); addToast('Transaction updated', 'success'); }
-            else { setTransactions(prev => [tx, ...prev].sort((a,b)=> new Date(b.date).getTime() - new Date(a.date).getTime())); addToast('Transaction added', 'success'); }
+        {isTxModalOpen && <TransactionModal editingTx={editingTx} settings={settings} onClose={() => setIsTxModalOpen(false)} onSave={async (tx: Transaction) => {
+            if (editingTx) { 
+              setTransactions(prev => prev.map(t => t.id === tx.id ? tx : t)); 
+              addToast('Transaction updated', 'success'); 
+            } else { 
+              setTransactions(prev => [tx, ...prev].sort((a,b)=> new Date(b.date).getTime() - new Date(a.date).getTime())); 
+              addToast('Transaction added', 'success'); 
+            }
             setIsTxModalOpen(false);
+            if (user && dbStatus?.connected && dbStatus?.tables.transactions) {
+              await saveTransaction(user.id, tx);
+            }
           }} />}
       </AnimatePresence>
 
@@ -726,28 +893,165 @@ function TasksView({ tasks, setTasks }: any) {
   );
 }
 
-function SettingsView({ settings, setSettings, user, setTransactions, addToast }: any) {
+function SettingsView({ settings, setSettings, user, setTransactions, addToast, dbStatus, isValidatingDb, onCheckDb }: any) {
   const reset = () => { if(confirm('Permanently delete all transactions? Type DELETE to confirm.')){ setTransactions([]); addToast('All data cleared', 'info') } };
+  const [showSql, setShowSql] = useState(false);
+
+  const copySql = () => {
+    if (dbStatus?.sqlSchema) {
+      navigator.clipboard.writeText(dbStatus.sqlSchema);
+      addToast('SQL Migration Schema copied to clipboard!', 'success');
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-2xl">
-      <h1 className="text-2xl font-display font-semibold">Settings</h1>
+      <h1 className="text-2xl font-display font-semibold text-white">Settings</h1>
+      
+      {/* Basic Settings */}
       <div className="bg-slate-850 p-6 rounded-2xl border border-slate-800 space-y-6">
         <div>
-          <label className="block text-sm text-slate-400 mb-2">Currency</label>
-          <select value={settings.currency} onChange={e=>setSettings({...settings, currency: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 outline-none focus:border-emerald-500">
+          <label className="block text-sm text-slate-400 mb-2 font-medium">Currency</label>
+          <select value={settings.currency} onChange={e=>setSettings({...settings, currency: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-emerald-500 text-slate-200">
              {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-sm text-slate-400 mb-2">My Profile</label>
-          <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 flex items-center gap-4">
-             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center font-bold text-white">{user.name[0]}</div>
-             <div><div className="font-medium text-white">{user.name}</div><div className="text-sm text-slate-500">{user.email}</div></div>
+          <label className="block text-sm text-slate-400 mb-2 font-medium">My Profile</label>
+          <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 flex items-center gap-4">
+             <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center justify-center font-bold text-lg">{user.name[0]?.toUpperCase()}</div>
+             <div>
+               <div className="font-medium text-white">{user.name}</div>
+               <div className="text-xs text-slate-500 mt-0.5">{user.email}</div>
+             </div>
           </div>
         </div>
-        <div className="pt-6 border-t border-slate-800">
-           <button onClick={reset} className="text-coral-400 font-medium hover:underline">Reset All Data</button>
+        <div className="pt-4 border-t border-slate-800 flex justify-between items-center">
+          <button onClick={reset} className="text-rose-400 text-sm font-medium hover:underline flex items-center gap-2">
+            <Trash2 className="w-4 h-4" /> Reset All Local Transactions
+          </button>
         </div>
+      </div>
+
+      {/* Database Diagnostic Center */}
+      <div className="bg-slate-850 p-6 rounded-2xl border border-slate-800 space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-400" /> Database Integration (Supabase)
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">Connect the applet dynamically to real persistence</p>
+          </div>
+          <button 
+            onClick={() => onCheckDb(true)} 
+            disabled={isValidatingDb}
+            className="px-3 py-1.5 text-xs font-semibold bg-slate-800 text-slate-200 hover:bg-slate-700 rounded-lg transition-all border border-slate-700 duration-150 flex items-center gap-1.5"
+          >
+            <Activity className={cn("w-3.5 h-3.5", isValidatingDb && "animate-spin")} />
+            {isValidatingDb ? 'Testing...' : 'Test Connection'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-slate-900 p-4 rounded-xl border border-slate-850 space-y-2">
+            <div className="text-xs text-slate-550">Connection Status</div>
+            <div className="flex items-center gap-2">
+              {dbStatus?.connected ? (
+                <>
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-sm font-medium text-slate-200">Connected to Supabase</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+                  <span className="text-sm font-medium text-slate-450">
+                    {dbStatus?.configured ? 'Credential issues' : 'Running in local sandbox'}
+                  </span>
+                </>
+              )}
+            </div>
+            {dbStatus?.error && (
+              <p className="text-[11px] text-rose-400 pt-1 leading-normal italic">{dbStatus.error}</p>
+            )}
+            {!dbStatus?.configured && !dbStatus?.error && (
+              <p className="text-[11px] text-slate-400 leading-normal">
+                No secrets detected. Set secrets <strong className="text-emerald-400">VITE_SUPABASE_URL</strong> and <strong className="text-emerald-400">VITE_SUPABASE_ANON_KEY</strong> in the Secrets/Settings panel to activate sync.
+              </p>
+            )}
+          </div>
+
+          <div className="bg-slate-900 p-4 rounded-xl border border-slate-850 space-y-2">
+            <div className="text-xs text-slate-550">Table Assertions (Supabase Schema)</div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="flex items-center gap-1.5">
+                {dbStatus?.tables.users ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                ) : (
+                  <X className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                )}
+                <span className="text-slate-300 font-mono">users</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {dbStatus?.tables.transactions ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                ) : (
+                  <X className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                )}
+                <span className="text-slate-300 font-mono">transactions</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {dbStatus?.tables.budgets ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                ) : (
+                  <X className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                )}
+                <span className="text-slate-300 font-mono">budgets</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {dbStatus?.tables.tasks ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                ) : (
+                  <X className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                )}
+                <span className="text-slate-300 font-mono">tasks</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {dbStatus?.connected && !Object.values(dbStatus.tables).every(Boolean) && (
+          <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-2">
+            <div className="flex items-start gap-2 text-amber-500 text-xs font-semibold">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>Database Table Schema Missing</span>
+            </div>
+            <p className="text-[11px] text-slate-300 leading-relaxed">
+              We connected to your Supabase instance, but couldn't locate the required relational tables. Please write or execute the database structure script inside your Supabase dashboard.
+            </p>
+            <div className="pt-2 flex gap-3">
+              <button 
+                onClick={() => setShowSql(!showSql)} 
+                className="text-xs text-amber-400 font-semibold hover:underline flex items-center gap-1"
+              >
+                <FileText className="w-3.5 h-3.5" /> {showSql ? 'Hide SQL Code' : 'View Migration SQL'}
+              </button>
+              <button 
+                onClick={copySql} 
+                className="text-xs text-slate-200 font-semibold hover:underline flex items-center gap-1"
+              >
+                <Check className="w-3.5 h-3.5 text-emerald-500" /> Copy Config SQL
+              </button>
+            </div>
+
+            {showSql && (
+              <div className="mt-3 relative">
+                <pre className="text-[10px] font-mono bg-slate-950 p-4 rounded-lg overflow-x-auto text-slate-300 max-h-48 border border-slate-800">
+                  {dbStatus.sqlSchema}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
