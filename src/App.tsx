@@ -9,7 +9,7 @@ import {
   TrendingDown, TrendingUp, Upload, Download, Wallet, AlertCircle, Calendar,
   CreditCard, DollarSign, ArrowUpRight, ArrowDownRight, Activity, FileText,
   Filter, Tag, ChevronsUpDown, CheckCircle2, Clock, X, Circle, HelpCircle,
-  Lightbulb, AlertTriangle, ShieldCheck
+  Lightbulb, AlertTriangle, ShieldCheck, Menu, MoreHorizontal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -122,6 +122,7 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [isAuthMode, setIsAuthMode] = useState<'Login' | 'Register'>('Login');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // Modals state
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
@@ -183,8 +184,58 @@ export default function App() {
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex font-body">
-      <aside className="w-64 bg-slate-850 border-r border-slate-800 hidden md:flex flex-col">
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex font-body pb-16 md:pb-0">
+      {/* Mobile Menu Slide-over Drawer */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
+            />
+            {/* Drawer */}
+            <motion.aside
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed inset-y-0 left-0 w-64 bg-slate-850 border-r border-slate-800 z-50 md:hidden flex flex-col shadow-2xl"
+            >
+              <div className="p-6 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 flex items-center justify-center bg-emerald-500 rounded-lg">
+                    <Wallet className="w-5 h-5 text-slate-900" />
+                  </div>
+                  <span className="font-display font-bold text-xl tracking-tight text-white">FinFlow</span>
+                </div>
+                <button
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <nav className="flex-1 px-4 space-y-1 mt-4">
+                <NavItem id="Dashboard" icon={LayoutDashboard} label="Dashboard" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
+                <NavItem id="Transactions" icon={ListTodo} label="Transactions" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
+                <NavItem id="Charts" icon={PieChartIcon} label="Charts & Analytics" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
+                <NavItem id="Insights" icon={Lightbulb} label="AI Insights" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
+                <NavItem id="Budgets" icon={Target} label="Budget Planner" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
+                <NavItem id="Tasks" icon={CheckCircle2} label="Goals & Tasks" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
+              </nav>
+              <div className="p-4 border-t border-slate-800">
+                 <NavItem id="Settings" icon={SettingsIcon} label="Settings" activeTab={activeTab} setActiveTab={(id) => { setActiveTab(id); setIsMobileMenuOpen(false); }} />
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+
+      <aside className="w-64 bg-slate-850 border-r border-slate-800 hidden md:flex flex-col animate-in slide-in-from-left duration-200">
         <div className="p-6 flex items-center gap-3">
           <div className="w-8 h-8 flex items-center justify-center bg-emerald-500 rounded-lg">
             <Wallet className="w-5 h-5 text-slate-900" />
@@ -205,8 +256,17 @@ export default function App() {
       </aside>
 
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        <header className="h-16 border-b border-slate-800 bg-slate-850/50 backdrop-blur-md flex items-center justify-between px-6 shrink-0 z-10 w-full">
-          <h2 className="text-lg font-medium text-slate-200">{greeting}, {user.name.split(' ')[0]} 👋</h2>
+        <header className="h-16 border-b border-slate-800 bg-slate-850/50 backdrop-blur-md flex items-center justify-between px-4 md:px-6 shrink-0 z-10 w-full animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="p-2 -ml-2 text-slate-400 hover:text-slate-200 rounded-lg md:hidden transition-colors"
+              aria-label="Open navigation menu"
+            >
+              <Menu className="w-6 h-6" />
+            </button>
+            <h2 className="text-base md:text-lg font-medium text-slate-200 truncate">{greeting}, {user.name.split(' ')[0]} 👋</h2>
+          </div>
           <div className="flex items-center gap-4">
             <button className="relative p-2 text-slate-400 hover:text-slate-200 transition-colors">
               <Bell className="w-5 h-5" />
@@ -240,7 +300,22 @@ export default function App() {
           }} />}
       </AnimatePresence>
 
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+      {/* Mobile Bottom Navigation Bar */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-slate-850/95 backdrop-blur-md border-t border-slate-800/80 flex items-center justify-around px-2 z-30 pb-safe">
+        <BottomTabItem id="Dashboard" icon={LayoutDashboard} label="Overview" activeTab={activeTab} setActiveTab={setActiveTab} />
+        <BottomTabItem id="Transactions" icon={ListTodo} label="History" activeTab={activeTab} setActiveTab={setActiveTab} />
+        <BottomTabItem id="Charts" icon={PieChartIcon} label="Analytics" activeTab={activeTab} setActiveTab={setActiveTab} />
+        <BottomTabItem id="Budgets" icon={Target} label="Budgets" activeTab={activeTab} setActiveTab={setActiveTab} />
+        <button 
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-200 transition-colors w-12"
+        >
+          <Menu className="w-5 h-5 animate-pulse" />
+          <span className="text-[10px] font-medium">Menu</span>
+        </button>
+      </div>
+
+      <div className="fixed bottom-20 md:bottom-4 right-4 z-50 flex flex-col gap-2">
         <AnimatePresence>
           {toasts.map(t => (
             <motion.div key={t.id} initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} exit={{opacity:0, scale:0.95}} className={cn("px-4 py-3 rounded-xl shadow-lg border flex items-center gap-3", t.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : t.type === 'error' ? 'bg-coral-500/10 border-coral-500/20 text-coral-400' : 'bg-slate-800 border-slate-700 text-slate-200')}>
@@ -257,6 +332,19 @@ function NavItem({ id, icon: Icon, label, activeTab, setActiveTab }: { id: strin
   return (
     <button onClick={() => setActiveTab(id)} className={cn("flex items-center gap-3 w-full px-4 py-3 rounded-xl transition-all text-left", activeTab === id ? 'bg-emerald-500/10 text-emerald-400 font-medium' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200')}>
       <Icon className="w-5 h-5" />{label}
+    </button>
+  );
+}
+
+function BottomTabItem({ id, icon: Icon, label, activeTab, setActiveTab }: { id: string, icon: any, label: string, activeTab: string, setActiveTab: (id: string) => void }) {
+  const active = activeTab === id;
+  return (
+    <button 
+      onClick={() => setActiveTab(id)} 
+      className={cn("flex flex-col items-center justify-center gap-1 transition-all w-12 py-1", active ? 'text-emerald-400 font-medium scale-105' : 'text-slate-400 hover:text-slate-200')}
+    >
+      <Icon className="w-5 h-5" />
+      <span className="text-[10px] whitespace-nowrap">{label}</span>
     </button>
   );
 }
